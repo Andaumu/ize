@@ -1218,10 +1218,33 @@ async def cmd_vnd(update, context):
     await update.message.reply_text(f"✅ Đã tặng {format_money(amount)} cho {target}.")
 
 # ==================== STOPBOT / STARTBOT ====================
-async def cmd_stopbot(update, context):
-    if not is_owner(update.effective_user.id): return
-    user_data_store["bot_enabled"] = False; save_all_data()
-    await stop_all_proxy_tasks()
+async def stop_all_tasks():
+    # Dừng tất cả proxy tasks
+    for uid, rt in user_runtime.items():
+        if rt.get("proxy_task") and not rt["proxy_task"].done():
+            rt["proxy_stop_event"].set()
+            rt["proxy_task"].cancel()
+        if rt.get("monitoring"):
+            rt["monitoring"] = False
+            if rt.get("monitor_task"):
+                rt["monitor_task"].cancel()
+        # Reset runtime
+        rt["proxy_task"] = None
+        rt["proxy_msg"] = None
+        rt["proxy_stop_event"] = None
+        rt["monitor_task"] = None
+    # Dừng các tác vụ scan LQ
+    for chat_id, ev in scan_lq_tasks.items():
+        ev.set()
+    scan_lq_tasks.clear()
+    # Dừng spam
+    for chat_id, ev in spam_tasks.items():
+        ev.set()
+    spam_tasks.clear()
+    # Dừng DDOS
+    for chat_id, ev in stress_tasks.items():
+        ev.set()
+    stress_tasks.clear()
     for k in user_data_store:
         if k in ("owner","blacklist","bot_enabled"): continue
         try: await context.bot.send_message(int(k), "⚠️ Bot đã tắt.")
