@@ -1217,7 +1217,7 @@ async def cmd_vnd(update, context):
     except: pass
     await update.message.reply_text(f"✅ Đã tặng {format_money(amount)} cho {target}.")
 
-# ==================== STOPBOT / STARTBOT ====================
+# ==================== DỪNG TẤT CẢ TÁC VỤ ====================
 async def stop_all_tasks():
     # Dừng tất cả proxy tasks
     for uid, rt in user_runtime.items():
@@ -1228,12 +1228,11 @@ async def stop_all_tasks():
             rt["monitoring"] = False
             if rt.get("monitor_task"):
                 rt["monitor_task"].cancel()
-        # Reset runtime
         rt["proxy_task"] = None
         rt["proxy_msg"] = None
         rt["proxy_stop_event"] = None
         rt["monitor_task"] = None
-    # Dừng các tác vụ scan LQ
+    # Dừng scan LQ
     for chat_id, ev in scan_lq_tasks.items():
         ev.set()
     scan_lq_tasks.clear()
@@ -1245,19 +1244,39 @@ async def stop_all_tasks():
     for chat_id, ev in stress_tasks.items():
         ev.set()
     stress_tasks.clear()
-    for k in user_data_store:
-        if k in ("owner","blacklist","bot_enabled"): continue
-        try: await context.bot.send_message(int(k), "⚠️ Bot đã tắt.")
-        except: pass
-    await update.message.reply_text("✅ Bot đã dừng.")
 
-async def cmd_startbot(update, context):
-    if not is_owner(update.effective_user.id): return
-    user_data_store["bot_enabled"] = True; save_all_data()
+# ==================== STOPBOT ====================
+async def cmd_stopbot(update, context):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    user_data_store["bot_enabled"] = False
+    save_all_data()
+    await stop_all_tasks()
+    # Gửi thông báo đến tất cả người dùng (trừ blacklist)
     for k in user_data_store:
-        if k in ("owner","blacklist","bot_enabled"): continue
-        try: await context.bot.send_message(int(k), "✅ Bot đã bật lại.")
-        except: pass
+        if k in ("owner", "blacklist", "bot_enabled"):
+            continue
+        try:
+            await context.bot.send_message(int(k), "⚠️ Bot đã tắt. Mọi chức năng tạm dừng.")
+        except:
+            pass
+    await update.message.reply_text("✅ Bot đã dừng. Dùng /startbot để bật lại.")
+
+# ==================== STARTBOT ====================
+async def cmd_startbot(update, context):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    user_data_store["bot_enabled"] = True
+    save_all_data()
+    for k in user_data_store:
+        if k in ("owner", "blacklist", "bot_enabled"):
+            continue
+        try:
+            await context.bot.send_message(int(k), "✅ Bot đã bật lại. Bạn có thể sử dụng bình thường.")
+        except:
+            pass
     await update.message.reply_text("✅ Bot đã bật lại.")
 
 # ==================== TOP ====================
@@ -1680,7 +1699,7 @@ def main():
     app.add_handler(CommandHandler("channel", cmd_channel))
     app.add_handler(CommandHandler("setowner", cmd_setowner))
     app.add_handler(CommandHandler("stopbot", cmd_stopbot))
-    app.add_handler(CommandHandler("startbot", cmd_startbot))
+app.add_handler(CommandHandler("startbot", cmd_startbot))
     app.add_handler(CommandHandler("genkey", cmd_genkey))
     app.add_handler(CommandHandler("listkeys", cmd_listkeys))
     app.add_handler(CommandHandler("keyinfo", cmd_keyinfo))
