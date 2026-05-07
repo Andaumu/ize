@@ -107,7 +107,7 @@ def check_antispam(uid):
 def generate_key():
     return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
 
-def create_key(owner_id, duration_str=None):
+def create_key(owner_id, duration_str=None, is_master=False):
     key = generate_key()
     now = datetime.utcnow()
     expires_at = None
@@ -115,35 +115,53 @@ def create_key(owner_id, duration_str=None):
         duration_str = duration_str.lower()
         match = re.match(r"(\d+)\s*(s|m|h|d|w|month|year)", duration_str)
         if match:
-            num = int(match.group(1)); unit = match.group(2)
-            if unit == "s": expires_at = now + timedelta(seconds=num)
-            elif unit == "m": expires_at = now + timedelta(minutes=num)
-            elif unit == "h": expires_at = now + timedelta(hours=num)
-            elif unit == "d": expires_at = now + timedelta(days=num)
-            elif unit == "w": expires_at = now + timedelta(weeks=num)
-            elif unit == "month": expires_at = now + timedelta(days=num*30)
-            elif unit == "year": expires_at = now + timedelta(days=num*365)
+            num = int(match.group(1))
+            unit = match.group(2)
+            if unit == "s":
+                expires_at = now + timedelta(seconds=num)
+            elif unit == "m":
+                expires_at = now + timedelta(minutes=num)
+            elif unit == "h":
+                expires_at = now + timedelta(hours=num)
+            elif unit == "d":
+                expires_at = now + timedelta(days=num)
+            elif unit == "w":
+                expires_at = now + timedelta(weeks=num)
+            elif unit == "month":
+                expires_at = now + timedelta(days=num*30)
+            elif unit == "year":
+                expires_at = now + timedelta(days=num*365)
     user_data_store["keys"][key] = {
-        "created_by": owner_id, "created_at": now.isoformat(),
-        "expires_at": expires_at.isoformat() if expires_at else None, "assigned_to": None
+        "created_by": owner_id,
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "assigned_to": None,
+        "is_master": is_master
     }
-    save_all_data(); return key
-
+    save_all_data()
+    return key
+  
 def check_user_key(user_id):
     uid = str(user_id)
     user_data = user_data_store.get(uid, {})
     key = user_data.get("activated_key")
-    if not key or key not in user_data_store.get("keys", {}): return False
+    if not key or key not in user_data_store.get("keys", {}):
+        return False
     key_info = user_data_store["keys"][key]
-    if key_info.get("assigned_to") != user_id: return False
+    if key_info.get("assigned_to") != user_id:
+        return False
     if key_info.get("expires_at"):
         expires = datetime.fromisoformat(key_info["expires_at"])
         if datetime.utcnow() > expires:
+            # Key hết hạn -> xóa key, hủy quyền master nếu có
+            if key_info.get("is_master"):
+                user_data_store[uid].pop("is_master", None)
             del user_data_store["keys"][key]
             user_data_store[uid]["activated_key"] = None
-            save_all_data(); return False
+            save_all_data()
+            return False
     return True
-
+  
 async def request_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🔑 Bạn chưa có key sử dụng bot.\nVui lòng nhập key (liên hệ @{ADMIN_USERNAME} để được cấp)."
@@ -151,20 +169,39 @@ async def request_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["expect_key"] = True
 
 async def process_key_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id; key = update.message.text.strip()
+    uid = update.effective_user.id
+    key = update.message.text.strip()
     keys = user_data_store.get("keys", {})
-    if key not in keys: await update.message.reply_text("❌ Key không hợp lệ."); return
+
+    if key not in keys:
+        await update.message.reply_text("❌ Key không hợp lệ.")
+        return
+
     key_info = keys[key]
+
     if key_info.get("assigned_to") is not None and key_info["assigned_to"] != uid:
-        await update.message.reply_text("❌ Key này đã được sử dụng bởi người khác."); return
+        await update.message.reply_text("❌ Key này đã được sử dụng bởi người khác.")
+        return
+
     if key_info.get("expires_at"):
         expires = datetime.fromisoformat(key_info["expires_at"])
-        if datetime.utcnow() > expires: await update.message.reply_text("❌ Key này đã hết hạn."); return
+        if datetime.utcnow() > expires:
+            await update.message.reply_text("❌ Key này đã hết hạn.")
+            return
+
+    # Gán key cho user
     key_info["assigned_to"] = uid
     user_data_store[str(uid)]["activated_key"] = key
     context.user_data.pop("expect_key", None)
-    save_all_data()
-    await update.message.reply_text("✅ Key hợp lệ! Bạn có thể sử dụng bot ngay bây giờ. Gõ /menu để bắt đầu.")
+
+    # Nếu là key master → cấp quyền admin
+    if key_info.get("is_master"):
+        user_data_store[str(uid)]["is_master"] = True
+        save_all_data()
+        await update.message.reply_text("👑 Key Master! Bạn có toàn quyền admin. Gõ /menu để bắt đầu.")
+    else:
+        save_all_data()
+        await update.message.reply_text("✅ Key hợp lệ! Bạn có thể sử dụng bot ngay bây giờ. Gõ /menu để bắt đầu.")
 
 # ==================== USER PROXY ====================
 def get_user_proxy_string(user_id):
@@ -1466,133 +1503,261 @@ async def handle_text(update, context):
 
     await update.message.reply_text("Gõ /menu để xem danh sách lệnh.")
 
-# ==================== ADMIN COMMANDS ====================
+# ==================== ADMIN COMMANDS (ĐÃ SỬA is_admin) ====================
 async def cmd_broadcast(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: await update.message.reply_text("/broadcast <msg>"); return
-    msg = " ".join(context.args); sent = 0
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("/broadcast <msg>")
+        return
+    msg = " ".join(context.args)
+    sent = 0
     for k in user_data_store:
-        if k in ("owner","blacklist","bot_enabled"): continue
-        try: await context.bot.send_message(int(k), f"📢 {msg}"); sent += 1
-        except: pass
+        if k in ("owner", "blacklist", "bot_enabled"):
+            continue
+        try:
+            await context.bot.send_message(int(k), f"📢 {msg}")
+            sent += 1
+        except:
+            pass
     await update.message.reply_text(f"✅ Đã gửi đến {sent} người.")
 
 async def cmd_ban(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
-    try: target = int(context.args[0])
-    except: await update.message.reply_text("ID lỗi."); return
-    if target == update.effective_user.id: await update.message.reply_text("Không thể tự ban."); return
-    bl = user_data_store.setdefault("blacklist",[])
-    if str(target) not in bl: bl.append(str(target)); save_all_data(); await update.message.reply_text(f"✅ Đã ban {target}.")
-    else: await update.message.reply_text(f"ℹ️ Đã bị ban.")
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("/ban <id>")
+        return
+    try:
+        target = int(context.args[0])
+    except:
+        await update.message.reply_text("ID lỗi.")
+        return
+    if target == update.effective_user.id:
+        await update.message.reply_text("Không thể tự ban.")
+        return
+    bl = user_data_store.setdefault("blacklist", [])
+    if str(target) not in bl:
+        bl.append(str(target))
+        save_all_data()
+        await update.message.reply_text(f"✅ Đã ban {target}.")
+    else:
+        await update.message.reply_text(f"ℹ️ Đã bị ban.")
 
 async def cmd_unban(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
-    try: target = int(context.args[0])
-    except: return
-    bl = user_data_store.setdefault("blacklist",[])
-    if str(target) in bl: bl.remove(str(target)); save_all_data(); await update.message.reply_text(f"✅ Đã bỏ ban {target}.")
-    else: await update.message.reply_text(f"ℹ️ Không có trong blacklist.")
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("/unban <id>")
+        return
+    try:
+        target = int(context.args[0])
+    except:
+        return
+    bl = user_data_store.setdefault("blacklist", [])
+    if str(target) in bl:
+        bl.remove(str(target))
+        save_all_data()
+        await update.message.reply_text(f"✅ Đã bỏ ban {target}.")
+    else:
+        await update.message.reply_text(f"ℹ️ Không có trong blacklist.")
 
 async def cmd_list_ids(update, context):
-    if not is_owner(update.effective_user.id): return
-    users = []; banned = []
-    for k,v in user_data_store.items():
-        if k in ("owner","blacklist","bot_enabled"): continue
-        try: users.append(int(k))
-        except: pass
-    for b in user_data_store.get("blacklist",[]):
-        try: banned.append(int(b))
-        except: pass
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    users = []
+    banned = []
+    for k, v in user_data_store.items():
+        if k in ("owner", "blacklist", "bot_enabled"):
+            continue
+        try:
+            users.append(int(k))
+        except:
+            pass
+    for b in user_data_store.get("blacklist", []):
+        try:
+            banned.append(int(b))
+        except:
+            pass
     lines = []
-    if users: lines.append(f"📋 Hoạt động ({len(users)}):"); lines.extend(f"• `{u}`" for u in sorted(users))
-    if banned: lines.append(f"\n🚫 Bị ban ({len(banned)}):"); lines.extend(f"• `{b}`" for b in sorted(banned))
-    if not lines: await update.message.reply_text("Chưa có ai."); return
-    if len(users)+len(banned) <= 100: await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    if users:
+        lines.append(f"📋 Hoạt động ({len(users)}):")
+        lines.extend(f"• `{u}`" for u in sorted(users))
+    if banned:
+        lines.append(f"\n🚫 Bị ban ({len(banned)}):")
+        lines.extend(f"• `{b}`" for b in sorted(banned))
+    if not lines:
+        await update.message.reply_text("Chưa có ai.")
+        return
+    if len(users) + len(banned) <= 100:
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
     else:
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8") as f:
-            f.write("Danh sách ID\n"); f.write(f"-- Hoạt động ({len(users)}) --\n"); f.writelines(f"{u}\n" for u in sorted(users))
-            if banned: f.write(f"\n-- Bị ban ({len(banned)}) --\n"); f.writelines(f"{b}\n" for b in sorted(banned))
+            f.write("Danh sách ID\n")
+            f.write(f"-- Hoạt động ({len(users)}) --\n")
+            f.writelines(f"{u}\n" for u in sorted(users))
+            if banned:
+                f.write(f"\n-- Bị ban ({len(banned)}) --\n")
+                f.writelines(f"{b}\n" for b in sorted(banned))
             f_path = f.name
-        await update.message.reply_document(open(f_path,"rb"), filename="ids.txt"); os.unlink(f_path)
+        await update.message.reply_document(open(f_path, "rb"), filename="ids.txt")
+        os.unlink(f_path)
 
 async def cmd_whois(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
-    try: target = int(context.args[0])
-    except: return
-    p = user_data_store.get(str(target),{}).get("profile",{})
-    if not p: await update.message.reply_text("❌ Không có dữ liệu."); return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("/whois <id>")
+        return
+    try:
+        target = int(context.args[0])
+    except:
+        return
+    p = user_data_store.get(str(target), {}).get("profile", {})
+    if not p:
+        await update.message.reply_text("❌ Không có dữ liệu.")
+        return
     uname = f"@{p['username']}" if p.get("username") else "Không"
     full = f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "Không"
     await update.message.reply_text(f"👤 *{target}*\n• Tên: {full}\n• Username: {uname}", parse_mode="Markdown")
 
 async def cmd_channel(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("/channel @username")
+        return
     uname = context.args[0]
-    if not uname.startswith("@"): uname = "@"+uname
+    if not uname.startswith("@"):
+        uname = "@" + uname
     try:
         chat = await context.bot.get_chat(uname)
         members = "Không rõ"
-        try: members = str(await chat.get_member_count())
-        except: pass
+        try:
+            members = str(await chat.get_member_count())
+        except:
+            pass
         info = f"📺 {uname}\n• Tên: {chat.title}\n• Loại: {chat.type}"
-        if chat.description: info += f"\n• Mô tả: {chat.description[:200]}"
+        if chat.description:
+            info += f"\n• Mô tả: {chat.description[:200]}"
         info += f"\n• Thành viên: {members}"
         await update.message.reply_text(info)
-    except BadRequest as e: await update.message.reply_text(f"❌ {e.message}")
+    except BadRequest as e:
+        await update.message.reply_text(f"❌ {e.message}")
 
-async def cmd_setowner(update, context):
-    uid = update.effective_user.id
-    owner = user_data_store.get("owner",0)
-    if owner == 0 or owner == uid: user_data_store["owner"] = uid; save_all_data(); await update.message.reply_text(f"✅ Bạn là chủ bot.")
-    else: await update.message.reply_text("❌ Chủ bot đã được thiết lập.")
+async def cmd_vnd(update, context):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("/vnd <id/@username> <số>")
+        return
+    target = context.args[0]
+    amt_str = context.args[1]
+    try:
+        amount = parse_money(amt_str)
+    except:
+        await update.message.reply_text("Số không hợp lệ.")
+        return
+    if amount <= 0:
+        await update.message.reply_text(">0.")
+        return
+    receiver_id = None
+    try:
+        receiver_id = int(target)
+    except:
+        uname = target.lstrip("@").lower()
+        for k, v in user_data_store.items():
+            if k in ("owner", "blacklist", "bot_enabled"):
+                continue
+            if v.get("profile", {}).get("username", "").lower() == uname:
+                receiver_id = int(k)
+                break
+    if not receiver_id:
+        await update.message.reply_text("❌ Không tìm thấy.")
+        return
+    recv = get_user_game_data(receiver_id)
+    recv["balance"] += amount
+    save_all_data()
+    try:
+        await context.bot.send_message(receiver_id, f"🎁 Chủ bot tặng {format_money(amount)}. Số dư: {format_money(recv['balance'])}")
+    except:
+        pass
+    await update.message.reply_text(f"✅ Đã tặng {format_money(amount)} cho {target}.")
 
-# ==================== KEY ADMIN COMMANDS ====================
 async def cmd_genkey(update, context):
-    uid = update.effective_user.id
-    if not is_owner(uid): return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
     duration = context.args[0] if context.args else None
-    key = create_key(uid, duration)
+    key = create_key(update.effective_user.id, duration)
     expiry = "vĩnh viễn"
     if duration:
         match = re.match(r"(\d+)\s*(s|m|h|d|w|month|year)", duration.lower())
-        if match: expiry = f"sau {match.group(1)} {match.group(2)}"
+        if match:
+            expiry = f"sau {match.group(1)} {match.group(2)}"
     await update.message.reply_text(f"🔑 Key: `{key}`\n⏱️ Hết hạn: {expiry}", parse_mode="Markdown")
 
 async def cmd_listkeys(update, context):
-    if not is_owner(update.effective_user.id): return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
     keys = user_data_store.get("keys", {})
-    if not keys: await update.message.reply_text("Chưa có key nào."); return
+    if not keys:
+        await update.message.reply_text("Chưa có key nào.")
+        return
     lines = ["Danh sách key:"]
     for k, v in keys.items():
-        expires = v.get("expires_at","vĩnh viễn")
-        assigned = v.get("assigned_to","chưa dùng")
+        expires = v.get("expires_at", "vĩnh viễn")
+        assigned = v.get("assigned_to", "chưa dùng")
         lines.append(f"`{k}` -> {assigned} (hết hạn: {expires})")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 async def cmd_keyinfo(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        return
     key = context.args[0]
-    info = user_data_store.get("keys",{}).get(key)
-    if not info: await update.message.reply_text("Key không tồn tại."); return
-    await update.message.reply_text(f"Key: {key}\nTạo bởi: {info['created_by']}\nNgày tạo: {info['created_at']}\nHết hạn: {info.get('expires_at','vĩnh viễn')}\nNgười dùng: {info.get('assigned_to','chưa')}")
+    info = user_data_store.get("keys", {}).get(key)
+    if not info:
+        await update.message.reply_text("Key không tồn tại.")
+        return
+    await update.message.reply_text(
+        f"Key: {key}\n"
+        f"Tạo bởi: {info['created_by']}\n"
+        f"Ngày tạo: {info['created_at']}\n"
+        f"Hết hạn: {info.get('expires_at','vĩnh viễn')}\n"
+        f"Người dùng: {info.get('assigned_to','chưa')}"
+    )
 
 async def cmd_revokekey(update, context):
-    if not is_owner(update.effective_user.id): return
-    if not context.args: return
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Không có quyền.")
+        return
+    if not context.args:
+        await update.message.reply_text("Sử dụng: /revokekey <key>")
+        return
     key = context.args[0]
-    keys = user_data_store.get("keys",{})
-    if key not in keys: await update.message.reply_text("Key không tồn tại."); return
+    keys = user_data_store.get("keys", {})
+    if key not in keys:
+        await update.message.reply_text("Key không tồn tại.")
+        return
     assigned = keys[key].get("assigned_to")
-    if assigned: user_data_store[str(assigned)]["activated_key"] = None
-    del keys[key]; save_all_data()
+    if assigned:
+        user_data_store[str(assigned)]["activated_key"] = None
+        if keys[key].get("is_master"):
+            user_data_store[str(assigned)].pop("is_master", None)
+    del keys[key]
+    save_all_data()
     await update.message.reply_text("✅ Đã thu hồi key.")
-
 # ==================== USER PROXY COMMANDS ====================
 async def cmd_setproxy(update, context):
     uid = update.effective_user.id
