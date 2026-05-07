@@ -15,7 +15,7 @@ from telegram.error import BadRequest
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8504373990:AAGrlPUjHjvO5P0XNWcWGk4DVzJAjqnfG2o"  # Thay token của bạn
+BOT_TOKEN = "8504373990:AAFrTK10Is1KlArldSbuZB9sI8Q-UvsLkZU"  # Thay token của bạn
 DATA_FILE = "bot_user_data.json"
 OWNER_USER_ID = int(os.environ.get("OWNER_ID", "0"))
 ADMIN_USERNAME = "izedentiroty01"
