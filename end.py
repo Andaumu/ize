@@ -1699,7 +1699,7 @@ def main():
     app.add_handler(CommandHandler("channel", cmd_channel))
     app.add_handler(CommandHandler("setowner", cmd_setowner))
     app.add_handler(CommandHandler("stopbot", cmd_stopbot))
-app.add_handler(CommandHandler("startbot", cmd_startbot))
+    app.add_handler(CommandHandler("startbot", cmd_startbot))
     app.add_handler(CommandHandler("genkey", cmd_genkey))
     app.add_handler(CommandHandler("listkeys", cmd_listkeys))
     app.add_handler(CommandHandler("keyinfo", cmd_keyinfo))
