@@ -1564,7 +1564,18 @@ async def cmd_unban(update, context):
         await update.message.reply_text(f"✅ Đã bỏ ban {target}.")
     else:
         await update.message.reply_text(f"ℹ️ Không có trong blacklist.")
-
+        
+async def cmd_setowner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global user_data_store
+    uid = update.effective_user.id
+    owner = user_data_store.get("owner", 0)
+    if owner == 0 or owner == uid:
+        user_data_store["owner"] = uid
+        save_all_data()
+        
+        await update.message.reply_text(f"✅ Bạn (@{update.effective_user.username}) đã được đặt làm chủ bot.")
+    else:
+        await update.message.reply_text("❌ Chủ bot đã được thiết lập trước đó.")
 async def cmd_list_ids(update, context):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Không có quyền.")
