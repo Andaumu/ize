@@ -119,31 +119,6 @@ class TikTokBrowser:
         except:
             return False
 
-    def scan_gray_streaks(self):
-        """Trả về list username (không @) có biểu tượng streak màu xám."""
-        self.browser.get("https://www.tiktok.com/messages")
-        time.sleep(5)
-        users = []
-        try:
-            chat_items = self.browser.find_elements(By.CSS_SELECTOR, '[class*="DivChatListItem"]')
-            for item in chat_items:
-                try:
-                    name_el = item.find_element(By.CSS_SELECTOR, '[class*="SpanUserName"]')
-                    if not name_el or not name_el.text:
-                        continue
-                    username = name_el.text.strip().lstrip("@")
-                    streak_el = item.find_element(By.CSS_SELECTOR, '[class*="streak-icon"]')
-                    if not streak_el:
-                        continue
-                    color = streak_el.value_of_css_property("color")
-                    if color and ("153" in color or "gray" in color):
-                        users.append(username)
-                except:
-                    continue
-        except Exception as e:
-            logger.error(f"Lỗi quét streak: {e}")
-        return users
-
     def get_random_video_url(self):
         self.browser.get("https://www.tiktok.com/foryou")
         time.sleep(3)
@@ -175,7 +150,7 @@ class TikTokBrowser:
         if self.browser:
             self.browser.quit()
 
-# ========== LƯU STREAK ==========
+# ========== QUẢN LÝ DANH SÁCH STREAK ==========
 def load_streak():
     if os.path.exists(STREAK_FILE):
         with open(STREAK_FILE, "r") as f:
@@ -186,16 +161,17 @@ def save_streak(users):
     with open(STREAK_FILE, "w") as f:
         json.dump(users, f)
 
-# ========== HANDLERS ==========
+# ========== COMMAND HANDLERS ==========
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Bot giữ streak TikTok.\n\n"
-        "/setcookie - Nhập cookie (JSON / Netscape / key=value)\n"
-        "/scan - Quét bạn bè sắp mất streak\n"
+        "/setcookie - Nhập cookie\n"
+        "/add @user - Thêm người vào danh sách\n"
+        "/remove @user - Xóa khỏi danh sách\n"
+        "/list - Xem danh sách\n"
+        "/send @user - Gửi video cho 1 người\n"
         "/sendall - Gửi video cho tất cả\n"
-        "/send @user - Gửi 1 người\n"
-        "/schedule - Bật/tắt gửi tự động 23:00\n"
-        "/list - Xem danh sách"
+        "/schedule - Bật/tắt gửi tự động 23:00"
     )
 
 async def setcookie_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,22 +187,62 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Cookie không đúng định dạng.")
         context.user_data["waiting_cookie"] = False
         return
+    # Không phải chờ cookie, không làm gì cả
     await update.message.reply_text("Dùng /start để xem lệnh.")
 
-async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔍 Đang quét...")
+async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target = context.args[0].lstrip("@")
+    except IndexError:
+        await update.message.reply_text("📌 Dùng: /add @username")
+        return
+    users = load_streak()
+    if target in users:
+        await update.message.reply_text(f"@{target} đã có trong danh sách.")
+        return
+    users.append(target)
+    save_streak(users)
+    await update.message.reply_text(f"✅ Đã thêm @{target}.")
+
+async def remove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target = context.args[0].lstrip("@")
+    except IndexError:
+        await update.message.reply_text("📌 Dùng: /remove @username")
+        return
+    users = load_streak()
+    if target not in users:
+        await update.message.reply_text(f"@{target} không có trong danh sách.")
+        return
+    users.remove(target)
+    save_streak(users)
+    await update.message.reply_text(f"❌ Đã xóa @{target}.")
+
+async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = load_streak()
+    await update.message.reply_text("📋 " + "\n".join(users) if users else "Danh sách trống.")
+
+async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target = context.args[0].lstrip("@")
+    except IndexError:
+        await update.message.reply_text("📌 Dùng: /send @username")
+        return
+    await update.message.reply_text(f"🎬 Gửi video tới @{target}...")
     t = TikTokBrowser()
     try:
         t.start_browser()
         t.load_cookies()
         if not t.is_logged_in():
-            await update.message.reply_text("❌ Cookie sai hoặc hết hạn.")
+            await update.message.reply_text("❌ Cookie không đúng hoặc hết hạn.")
             return
-        users = t.scan_gray_streaks()
-        save_streak(users)
-        await update.message.reply_text(f"✅ Tìm thấy {len(users)} người:\n" + "\n".join(users))
+        url = t.get_random_video_url()
+        if t.send_message(target, url):
+            await update.message.reply_text(f"✅ Đã gửi video cho @{target}")
+        else:
+            await update.message.reply_text("❌ Gửi thất bại.")
     except FileNotFoundError:
-        await update.message.reply_text("❌ Chưa có cookie. /setcookie trước.")
+        await update.message.reply_text("❌ Chưa có cookie. Dùng /setcookie.")
     except Exception as e:
         await update.message.reply_text(f"Lỗi: {e}")
     finally:
@@ -235,7 +251,7 @@ async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_streak()
     if not users:
-        await update.message.reply_text("❌ Chưa có danh sách. Dùng /scan.")
+        await update.message.reply_text("❌ Danh sách trống. Dùng /add để thêm người.")
         return
     await update.message.reply_text(f"🚀 Gửi video cho {len(users)} người...")
     t = TikTokBrowser()
@@ -250,7 +266,7 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             url = t.get_random_video_url()
             if t.send_message(u, url):
                 ok += 1
-            time.sleep(2)
+            time.sleep(2)  # tránh spam
         await update.message.reply_text(f"✅ Đã gửi {ok}/{len(users)}.")
     except FileNotFoundError:
         await update.message.reply_text("❌ Chưa có cookie.")
@@ -259,35 +275,7 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         t.close()
 
-async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        target = context.args[0].lstrip("@")
-    except IndexError:
-        await update.message.reply_text("📌 Dùng: /send @username")
-        return
-    await update.message.reply_text(f"🎬 Gửi tới @{target}...")
-    t = TikTokBrowser()
-    try:
-        t.start_browser()
-        t.load_cookies()
-        if not t.is_logged_in():
-            await update.message.reply_text("❌ Cookie không đúng.")
-            return
-        url = t.get_random_video_url()
-        if t.send_message(target, url):
-            await update.message.reply_text(f"✅ Đã gửi.")
-        else:
-            await update.message.reply_text("❌ Gửi thất bại.")
-    except Exception as e:
-        await update.message.reply_text(f"Lỗi: {e}")
-    finally:
-        t.close()
-
-async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = load_streak()
-    await update.message.reply_text("📋 " + "\n".join(users) if users else "Danh sách trống.")
-
-# ========== TỰ ĐỘNG 23:00 ==========
+# ========== TỰ ĐỘNG GỬI 23:00 ==========
 JOB_NAME = "daily_streak"
 async def auto_send_job(context: ContextTypes.DEFAULT_TYPE):
     users = load_streak()
@@ -327,10 +315,11 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("setcookie", setcookie_cmd))
-    app.add_handler(CommandHandler("scan", scan_cmd))
-    app.add_handler(CommandHandler("sendall", sendall_cmd))
-    app.add_handler(CommandHandler("send", send_cmd))
+    app.add_handler(CommandHandler("add", add_cmd))
+    app.add_handler(CommandHandler("remove", remove_cmd))
     app.add_handler(CommandHandler("list", list_cmd))
+    app.add_handler(CommandHandler("send", send_cmd))
+    app.add_handler(CommandHandler("sendall", sendall_cmd))
     app.add_handler(CommandHandler("schedule", schedule_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     logger.info("Bot đã sẵn sàng!")
