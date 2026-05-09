@@ -128,29 +128,32 @@ class TikTokBrowser:
             return False
 
     def scan_gray_streaks(self):
-        """Trả về list username (không @) có biểu tượng streak màu xám."""
-        self.browser.get("https://www.tiktok.com/messages")
-        time.sleep(5)
-        users = []
-        try:
-            # Tìm tất cả mục chat (cần kiểm tra class thực tế nếu TikTok thay đổi)
-            chat_items = self.browser.find_elements(By.CSS_SELECTOR, '[class*="DivChatListItem"]')
-            for item in chat_items:
-                try:
-                    # Lấy username
-                    name_el = item.find_element(By.CSS_SELECTOR, '[class*="SpanUserName"]')
-                    username = name_el.text.strip().lstrip("@")
-                    # Tìm icon streak
-                    streak_el = item.find_element(By.CSS_SELECTOR, '[class*="streak-icon"]')
-                    color = streak_el.value_of_css_property("color")
-                    # Màu xám thường có giá trị rgba(153,153,153,1) hoặc rgb(153,153,153)
-                    if "153" in color or "gray" in color:
-                        users.append(username)
-                except:
+    """Trả về list username (không @) có biểu tượng streak màu xám."""
+    self.browser.get("https://www.tiktok.com/messages")
+    time.sleep(5)
+    users = []
+    try:
+        chat_items = self.browser.find_elements(By.CSS_SELECTOR, '[class*="DivChatListItem"]')
+        for item in chat_items:
+            try:
+                # Lấy username – kiểm tra None
+                name_el = item.find_element(By.CSS_SELECTOR, '[class*="SpanUserName"]')
+                if not name_el or not name_el.text:
                     continue
-        except Exception as e:
-            logger.error(f"Lỗi quét streak: {e}")
-        return users
+                username = name_el.text.strip().lstrip("@")
+
+                # Tìm icon streak
+                streak_el = item.find_element(By.CSS_SELECTOR, '[class*="streak-icon"]')
+                if not streak_el:
+                    continue
+                color = streak_el.value_of_css_property("color")
+                if color and ("153" in color or "gray" in color):
+                    users.append(username)
+            except Exception:
+                continue
+    except Exception as e:
+        logger.error(f"Lỗi quét streak: {e}")
+    return users
 
     def get_random_video_url(self):
         """Lấy 1 link video từ trang For You."""
