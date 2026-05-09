@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, json, re, time, random, logging
+import os, json, re, time, logging
 from datetime import time as dt_time
 
 from telegram import Update
@@ -13,16 +13,25 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ========== CẤU HÌNH ==========
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"         # <-- THAY TOKEN THẬT
-DOWNLOAD_DIR = "downloads"
+TOKEN = "8542542587:AAHfZYddqwRUOo1o8LWezz1K1nGo_KmANi4"         # <-- THAY TOKEN THẬT
 COOKIE_FILE = "cookies.json"
 STREAK_FILE = "streak_users.json"
+VIDEO_FILE = "saved_video.json"           # Lưu link video
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-if not os.path.exists(DOWNLOAD_DIR):
-    os.makedirs(DOWNLOAD_DIR)
+# ========== QUẢN LÝ VIDEO ĐÃ LƯU ==========
+def load_saved_video():
+    if os.path.exists(VIDEO_FILE):
+        with open(VIDEO_FILE, "r") as f:
+            data = json.load(f)
+            return data.get("url", None)
+    return None
+
+def save_video_url(url):
+    with open(VIDEO_FILE, "w") as f:
+        json.dump({"url": url}, f)
 
 # ========== QUẢN LÝ TRÌNH DUYỆT ==========
 class TikTokBrowser:
@@ -119,17 +128,8 @@ class TikTokBrowser:
         except:
             return False
 
-    def get_random_video_url(self):
-        self.browser.get("https://www.tiktok.com/foryou")
-        time.sleep(3)
-        self.browser.execute_script("window.scrollBy(0, 800)")
-        time.sleep(2)
-        links = self.browser.find_elements(By.CSS_SELECTOR, 'a[href*="/video/"]')
-        if links:
-            return random.choice(links).get_attribute("href")
-        return "https://www.tiktok.com/@tiktok/video/7106593419591814446"
-
     def send_message(self, username, video_url):
+        """Gửi link video vào chat của @username."""
         self.browser.get(f"https://www.tiktok.com/@{username}")
         time.sleep(3)
         try:
@@ -139,7 +139,7 @@ class TikTokBrowser:
             input_box.clear()
             input_box.send_keys(video_url)
             time.sleep(1)
-            input_box.send_keys("\ue007")
+            input_box.send_keys("\ue007")  # Enter
             time.sleep(2)
             return True
         except Exception as e:
@@ -161,21 +161,23 @@ def save_streak(users):
     with open(STREAK_FILE, "w") as f:
         json.dump(users, f)
 
-# ========== COMMAND HANDLERS ==========
+# ========== HANDLERS ==========
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Bot giữ streak TikTok.\n\n"
-        "/setcookie - Nhập cookie\n"
-        "/add @user - Thêm người vào danh sách\n"
-        "/remove @user - Xóa khỏi danh sách\n"
-        "/list - Xem danh sách\n"
-        "/send @user - Gửi video cho 1 người\n"
-        "/sendall - Gửi video cho tất cả\n"
-        "/schedule - Bật/tắt gửi tự động 23:00"
+        "/setcookie – Nhập cookie\n"
+        "/setvideo <link> – Lưu link video dùng chung\n"
+        "/getvideo – Xem link video đã lưu\n"
+        "/add @user – Thêm người vào danh sách\n"
+        "/remove @user – Xóa khỏi danh sách\n"
+        "/list – Xem danh sách\n"
+        "/send @user [link] – Gửi video cho 1 người (nếu không có link sẽ dùng link đã lưu)\n"
+        "/sendall [link] – Gửi cho tất cả\n"
+        "/schedule – Bật/tắt gửi tự động 23:00 (dùng link đã lưu)"
     )
 
 async def setcookie_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📎 Gửi nội dung cookie để mình lưu.")
+    await update.message.reply_text("📎 Gửi nội dung cookie (JSON/Netscape/key=value).")
     context.user_data["waiting_cookie"] = True
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,8 +189,26 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Cookie không đúng định dạng.")
         context.user_data["waiting_cookie"] = False
         return
-    # Không phải chờ cookie, không làm gì cả
     await update.message.reply_text("Dùng /start để xem lệnh.")
+
+async def setvideo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        url = context.args[0]
+    except IndexError:
+        await update.message.reply_text("📌 Dùng: /setvideo <link_tiktok>")
+        return
+    if "tiktok.com" not in url:
+        await update.message.reply_text("⚠️ Link có vẻ không phải TikTok.")
+        return
+    save_video_url(url)
+    await update.message.reply_text(f"✅ Đã lưu video:\n{url}")
+
+async def getvideo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = load_saved_video()
+    if url:
+        await update.message.reply_text(f"📼 Video hiện tại: {url}")
+    else:
+        await update.message.reply_text("❌ Chưa có video nào được lưu. Dùng /setvideo.")
 
 async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -223,22 +243,32 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📋 " + "\n".join(users) if users else "Danh sách trống.")
 
 async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        target = context.args[0].lstrip("@")
-    except IndexError:
-        await update.message.reply_text("📌 Dùng: /send @username")
+    args = context.args
+    if not args:
+        await update.message.reply_text("📌 Dùng: /send @username [link]")
         return
+
+    # Lấy username
+    target = args[0].lstrip("@")
+    # Xác định link video
+    if len(args) > 1:
+        video_url = args[1]  # link được cung cấp trực tiếp
+    else:
+        video_url = load_saved_video()
+        if not video_url:
+            await update.message.reply_text("❌ Chưa có video nào được lưu. Hãy dùng /setvideo <link> hoặc gửi kèm link.")
+            return
+
     await update.message.reply_text(f"🎬 Gửi video tới @{target}...")
     t = TikTokBrowser()
     try:
         t.start_browser()
         t.load_cookies()
         if not t.is_logged_in():
-            await update.message.reply_text("❌ Cookie không đúng hoặc hết hạn.")
+            await update.message.reply_text("❌ Cookie sai hoặc hết hạn.")
             return
-        url = t.get_random_video_url()
-        if t.send_message(target, url):
-            await update.message.reply_text(f"✅ Đã gửi video cho @{target}")
+        if t.send_message(target, video_url):
+            await update.message.reply_text(f"✅ Đã gửi.")
         else:
             await update.message.reply_text("❌ Gửi thất bại.")
     except FileNotFoundError:
@@ -251,8 +281,19 @@ async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_streak()
     if not users:
-        await update.message.reply_text("❌ Danh sách trống. Dùng /add để thêm người.")
+        await update.message.reply_text("❌ Danh sách trống. Dùng /add.")
         return
+
+    # Xác định link
+    args = context.args
+    if args:
+        video_url = args[0]
+    else:
+        video_url = load_saved_video()
+        if not video_url:
+            await update.message.reply_text("❌ Chưa có video được lưu. Dùng /setvideo hoặc gửi kèm link: /sendall <link>")
+            return
+
     await update.message.reply_text(f"🚀 Gửi video cho {len(users)} người...")
     t = TikTokBrowser()
     try:
@@ -263,10 +304,9 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         ok = 0
         for u in users:
-            url = t.get_random_video_url()
-            if t.send_message(u, url):
+            if t.send_message(u, video_url):
                 ok += 1
-            time.sleep(2)  # tránh spam
+            time.sleep(2)
         await update.message.reply_text(f"✅ Đã gửi {ok}/{len(users)}.")
     except FileNotFoundError:
         await update.message.reply_text("❌ Chưa có cookie.")
@@ -275,12 +315,16 @@ async def sendall_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         t.close()
 
-# ========== TỰ ĐỘNG GỬI 23:00 ==========
+# ========== TỰ ĐỘNG 23:00 ==========
 JOB_NAME = "daily_streak"
 async def auto_send_job(context: ContextTypes.DEFAULT_TYPE):
     users = load_streak()
     if not users:
         logger.info("Không có danh sách streak.")
+        return
+    video_url = load_saved_video()
+    if not video_url:
+        logger.error("Chưa có video lưu, không thể gửi tự động.")
         return
     t = TikTokBrowser()
     try:
@@ -290,8 +334,7 @@ async def auto_send_job(context: ContextTypes.DEFAULT_TYPE):
             logger.error("Cookie lỗi.")
             return
         for u in users:
-            url = t.get_random_video_url()
-            t.send_message(u, url)
+            t.send_message(u, video_url)
             time.sleep(2)
         logger.info("Đã gửi tự động.")
     except Exception as e:
@@ -308,13 +351,15 @@ async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏰ Đã TẮT tự động 23:00.")
     else:
         jq.run_daily(auto_send_job, time=dt_time(hour=23, minute=0), name=JOB_NAME)
-        await update.message.reply_text("⏰ Đã BẬT tự động 23:00 mỗi ngày.")
+        await update.message.reply_text("⏰ Đã BẬT tự động 23:00 mỗi ngày (sẽ dùng video đã lưu).")
 
 # ========== CHẠY BOT ==========
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("setcookie", setcookie_cmd))
+    app.add_handler(CommandHandler("setvideo", setvideo_cmd))
+    app.add_handler(CommandHandler("getvideo", getvideo_cmd))
     app.add_handler(CommandHandler("add", add_cmd))
     app.add_handler(CommandHandler("remove", remove_cmd))
     app.add_handler(CommandHandler("list", list_cmd))
