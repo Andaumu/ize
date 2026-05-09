@@ -13,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ========== CẤU HÌNH ==========
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"         # <-- THAY TOKEN THẬT
+TOKEN = "8542542587:AAHfZYddqwRUOo1o8LWezz1K1nGo_KmANi4"         # <-- THAY TOKEN THẬT
 COOKIE_FILE = "cookies.json"
 STREAK_FILE = "streak_users.json"
 VIDEO_FILE = "saved_video.json"
