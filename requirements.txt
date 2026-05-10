@@ -1,2 +1,3 @@
-python-telegram-bot==20.8
-selenium==4.16.0
+mkdir tiktok-streak-bot
+cd tiktok-streak-bot
+pip install python-telegram-bot==20.8 selenium==4.16.0
