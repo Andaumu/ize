@@ -22,7 +22,7 @@ load_dotenv()
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8504373990:AAFrTK10Is1KlArldSbuZB9sI8Q-UvsLkZU"
+BOT_TOKEN = "8504373990:AAG4BAS3lYhukl03PDkveqTOcCr_a5SPcGA"
 DATA_FILE = "bot_user_data.json"
 OWNER_USER_ID = int(os.environ.get("OWNER_ID", "0"))
 ADMIN_USERNAME = "izedentiroty01"
@@ -32,7 +32,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 supabase: Client = None
 
 # ==================== SEPAY CONFIG ====================
-SEPA_API_TOKEN = "33UKQBQ0JLPZTRMODCGDYLFQBO6NA95ISYZVXDXEJL6WRC8QKHDTFWYSMPRVEW2L"
+SEPA_API_TOKEN = "NXQHRGLA4MRIWS6N2TB1PAZKEVCU34LCXV3THPBOCOATLWYLXPB09DFQJIFKKWDM"
 SEPAY_ACCOUNT_NUMBER = "05237890382763"  # THAY BẰNG STK MB BANK THẬT
 SEPAY_BIN = "970426"
 NAP_RATE = 1
