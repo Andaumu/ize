@@ -34,7 +34,7 @@ supabase: Client = None
 # ==================== SEPAY CONFIG ====================
 SEPA_API_TOKEN = "33UKQBQ0JLPZTRMODCGDYLFQBO6NA95ISYZVXDXEJL6WRC8QKHDTFWYSMPRVEW2L"
 SEPAY_ACCOUNT_NUMBER = "05237890382763"  # THAY BẰNG STK MB BANK THẬT
-SEPAY_BIN = "970422"
+SEPAY_BIN = "970426"
 NAP_RATE = 1
 
 nap_requests = {}
@@ -512,13 +512,13 @@ async def cmd_nap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     qr_url = generate_vietqr(SEPAY_ACCOUNT_NUMBER, "IZE BOT", SEPA_BIN, amount, nap_code)
 
     msg = (
-        f"🏦 *Nạp IZE qua MB Bank*\n"
-        f"💰 Số tiền: {format_money(amount)}\n"
-        f"💠 Sẽ nhận: {format_ize(amount // NAP_RATE)}\n"
-        f"📝 Mã nạp của bạn: `{nap_code}`\n"
-        f"⚠️ *Chuyển đúng nội dung và số tiền*\n"
-        f"[📱 Quét QR để chuyển khoản]({qr_url})"
-    )
+    f"🏦 *Nạp IZE qua MSB*\n"   # ← đã sửa
+    f"💰 Số tiền: {format_money(amount)}\n"
+    f"💠 Sẽ nhận: {format_ize(amount // NAP_RATE)}\n"
+    f"📝 Mã nạp của bạn: `{nap_code}`\n"
+    f"⚠️ *Chuyển đúng nội dung và số tiền*\n"
+    f"[📱 Quét QR để chuyển khoản]({qr_url})"
+)
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def cmd_mynapcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
