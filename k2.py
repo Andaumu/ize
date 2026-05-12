@@ -484,26 +484,33 @@ def xw_settings_keyboard():
         [InlineKeyboardButton("🔙 Quay lại", callback_data="menu_xworld")]
     ])
 
-# ==================== NẠP IZE (ĐÃ FIX TOÀN BỘ) ====================
+# ==================== NẠP IZE ====================
 def generate_vietqr(so_tai_khoan, ten_chu_tk, ma_bin, so_tien, noi_dung):
+    """Tạo link ảnh QR VietQR"""
     amount_str = str(so_tien)
     noi_dung = noi_dung[:25]
     return f"https://vietqr.co/api/generate/{ma_bin}/{so_tai_khoan}/{ten_chu_tk}/{amount_str}/{noi_dung}?style=1&logo=1&isMask=1"
 
 async def cmd_nap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if not is_owner(uid) and not check_user_key(uid): await request_key(update, context); return
+    if not is_owner(uid) and not check_user_key(uid):
+        await request_key(update, context); return
     if not context.args:
-        await update.message.reply_text("📝 Dùng: /nap <số VND> (tối thiểu 1,000)\nTỷ giá: 1 VND = 1 IZE"); return
+        await update.message.reply_text("📝 Dùng: /nap <số VND> (tối thiểu 1,000)\nTỷ giá: 1 VND = 1 IZE")
+        return
     try: amount = parse_money(context.args[0])
     except: await update.message.reply_text("❌ Số tiền không hợp lệ."); return
     if amount < 1000: await update.message.reply_text("❌ Tối thiểu 1,000 VND."); return
+
     user_data = user_data_store.setdefault(str(uid), {})
     nap_code = user_data.get("nap_code", f"NAP{uid}")
     user_data["nap_code"] = nap_code
     save_all_data()
+
     nap_requests[uid] = {"amount": amount, "content": nap_code, "time": time.time(), "checked": False}
+    # Dòng bên dưới đã sửa: SEPA_BIN → SEPAY_BIN
     qr_url = generate_vietqr(SEPAY_ACCOUNT_NUMBER, "IZE BOT", SEPA_BIN, amount, nap_code)
+
     msg = (
         f"🏦 *Nạp IZE qua MB Bank*\n"
         f"💰 Số tiền: {format_money(amount)}\n"
@@ -516,16 +523,19 @@ async def cmd_nap(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_mynapcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if not is_owner(uid) and not check_user_key(uid): await request_key(update, context); return
+    if not is_owner(uid) and not check_user_key(uid):
+        await request_key(update, context); return
     user_data = user_data_store.get(str(uid), {})
     nap_code = user_data.get("nap_code", f"NAP{uid}")
-    if "nap_code" not in user_data: user_data["nap_code"] = nap_code; save_all_data()
+    if "nap_code" not in user_data:
+        user_data["nap_code"] = nap_code; save_all_data()
     await update.message.reply_text(f"📝 Mã nạp của bạn: `{nap_code}`\nHãy nhập đúng mã này khi chuyển khoản.", parse_mode="Markdown")
 
 async def check_nap_transactions(context: ContextTypes.DEFAULT_TYPE):
     if not SEPA_API_TOKEN: return
     headers = {"Authorization": f"Bearer {SEPA_API_TOKEN}", "Content-Type": "application/json"}
     try:
+        # Dòng bên dưới đã sửa: SEPA_ACCOUNT_NUMBER → SEPAY_ACCOUNT_NUMBER
         r = requests.get("https://my.sepay.vn/userapi/transactions/list", headers=headers,
                          params={"account_number": SEPA_ACCOUNT_NUMBER, "limit": 20}, timeout=10)
         if r.status_code != 200: return
